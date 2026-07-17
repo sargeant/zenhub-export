@@ -369,19 +369,15 @@ def export_workspace(client: ZenHubClient, workspace_id: str) -> dict[str, Any]:
     issues_by_key: dict[str, dict[str, Any]] = {}
 
     for pipeline in pipelines:
-        try:
-            nodes = paginate(
-                client,
-                PIPELINE_ISSUES,
-                {"pipelineId": pipeline["id"], "workspaceId": workspace_id},
-                "searchIssuesByPipeline",
-            )
-        except RuntimeError as exc:
-            print(f"  skipping pipeline {pipeline['name']} (likely closed): {exc}", file=sys.stderr)
-            continue
+        nodes = paginate(
+            client,
+            PIPELINE_ISSUES,
+            {"pipelineId": pipeline["id"], "workspaceId": workspace_id},
+            "searchIssuesByPipeline",
+        )
         for issue in nodes:
             issues_by_key[issue_key(issue)] = issue
-        print(f"  pipeline {pipeline['name']}: {len(nodes)} open issues")
+        print(f"  pipeline {pipeline['name']}: {len(nodes)} issues")
 
     closed = paginate(client, CLOSED_ISSUES, {"workspaceId": workspace_id}, "searchClosedIssues")
     for issue in closed:
