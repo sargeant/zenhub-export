@@ -8,7 +8,7 @@ if needed. It performs **no mutations**.
 
 ## Why this exists (what ZenHub actually holds)
 
-Most issue content  titles, bodies, comments, open/closed state  lives in
+Most issue content -- titles, bodies, comments, open/closed state -- lives in
 **GitHub** and survives a workspace deletion. ZenHub stores an *overlay* plus a
 few of its own entities. Those are what disappear when you delete a workspace,
 so those are what we capture:
@@ -23,7 +23,7 @@ so those are what we capture:
 Requires [`uv`](https://docs.astral.sh/uv/).
 
 1. Generate a **Personal API Key** in ZenHub: click your username (bottom-left)
-   ’ *Account management* ’ *API* section ’ create key. It is shown once.
+   -> *Account management* -> *API* section -> create key. It is shown once.
 2. Put it in a `.env` file in this directory:
 
    ```
@@ -91,7 +91,7 @@ Each entry in `issues` is keyed `owner/repo#number` (e.g.
 | `number`, `title`, `state`, `htmlUrl` | identity (also in GitHub) |
 | `ghNodeId` | GitHub GraphQL node ID; **null in some older workspaces** |
 | `body` | populated for ZenHub-native issues; GitHub issues carry theirs in GitHub |
-| `repository` | `{ ghId, name, ownerName }`  the reliable join key |
+| `repository` | `{ ghId, name, ownerName }` -- the reliable join key |
 | `pipelineIssue` | `pipeline`, `priority`, and `relativePosition` (board order) |
 | `estimate` | `{ value }` |
 | `sprints` | sprints the issue belongs to |
@@ -109,8 +109,8 @@ These are API/data facts, not bugs:
 - **Board ordering (`relativePosition`) exists only for issues in open
   pipelines.** Closed issues aren't on the board, so they have no position.
 - **`ghNodeId` is null in some older workspaces.** Use `repository.ghId` +
-  `number` as the stable key  it is present everywhere.
-- **Comments and activity history are not exported**  they live in GitHub and
+  `number` as the stable key -- it is present everywhere.
+- **Comments and activity history are not exported** -- they live in GitHub and
   survive workspace deletion.
 - Epics moved to the *issue type / sub-issue* model (ZenHub, June 2025).
   `issueType` and `githubParentIssue` reflect the current hierarchy;
@@ -118,7 +118,7 @@ These are API/data facts, not bugs:
 
 ## Rehydration notes
 
-There is no import script  this is export only. To rebuild later, the ZenHub
+There is no import script -- this is export only. To rebuild later, the ZenHub
 GraphQL API offers matching mutations (create workspace, pipelines, sprints,
 priorities; set estimate; move issue to pipeline; assign sprint; set issue
 type / parent). Match saved records back to GitHub issues via
