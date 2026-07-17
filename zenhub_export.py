@@ -120,6 +120,7 @@ query WorkspaceMeta($workspaceId: ID!) {
     }
     repositoriesConnection(first: 100) {
       nodes { id ghId name ownerName isPrivate isArchived }
+      pageInfo { hasNextPage }
     }
     pipelinesConnection(first: 50) {
       nodes {
@@ -131,9 +132,10 @@ query WorkspaceMeta($workspaceId: ID!) {
           staleIssues
           staleInterval
           showAgeInPipeline
-          wipLimits { nodes { id blockPipeline limitValue } }
+          wipLimits { nodes { id blockPipeline limitValue } pageInfo { hasNextPage } }
         }
       }
+      pageInfo { hasNextPage }
     }
   }
 }
@@ -158,7 +160,7 @@ query Sprints($workspaceId: ID!, $cursor: String) {
         id name generatedName state
         startAt endAt totalPoints completedPoints
         closedIssuesCount createdAt
-        issues(first: 100) { nodes { number repository { ghId } } }
+        issues(first: 100) { nodes { number repository { ghId } } pageInfo { hasNextPage } }
       }
       pageInfo { hasNextPage endCursor }
     }
@@ -174,10 +176,11 @@ query Epics($workspaceId: ID!, $cursor: String) {
         id title state body
         startOn endOn createdAt updatedAt
         estimate { value }
-        labels(first: 50) { nodes { name } }
-        assignees(first: 20) { nodes { githubUser { login } } }
+        labels(first: 50) { nodes { name } pageInfo { hasNextPage } }
+        assignees(first: 20) { nodes { githubUser { login } } pageInfo { hasNextPage } }
         childIssues(first: 100, workspaceId: $workspaceId) {
           nodes { number repository { ghId } }
+          pageInfo { hasNextPage }
         }
       }
       pageInfo { hasNextPage endCursor }
@@ -193,7 +196,7 @@ query Releases($workspaceId: ID!, $cursor: String) {
       nodes {
         id title description state
         startOn endOn createdAt closedAt
-        issues(first: 100) { nodes { number repository { ghId } } }
+        issues(first: 100) { nodes { number repository { ghId } } pageInfo { hasNextPage } }
       }
       pageInfo { hasNextPage endCursor }
     }
@@ -206,7 +209,7 @@ query Roadmap($workspaceId: ID!) {
   workspace(id: $workspaceId) {
     roadmap {
       id
-      keyDates(first: 100) { nodes { id date color description } }
+      keyDates(first: 100) { nodes { id date color description } pageInfo { hasNextPage } }
       items(first: 100) {
         nodes {
           __typename
@@ -214,6 +217,7 @@ query Roadmap($workspaceId: ID!) {
           ... on Project { id name state startOn endOn }
           ... on Epic { id startOn endOn issue { number repository { ghId } } }
         }
+        pageInfo { hasNextPage }
       }
     }
   }
@@ -232,25 +236,25 @@ fragment IssueFields on Issue {
   createdAt
   closedAt
   repository { id ghId name ownerName }
-  labels(first: 50) { nodes { name } }
-  assignees(first: 20) { nodes { login } }
+  labels(first: 50) { nodes { name } pageInfo { hasNextPage } }
+  assignees(first: 20) { nodes { login } pageInfo { hasNextPage } }
   estimate { value }
   pipelineIssue(workspaceId: $workspaceId) {
     priority { id name color }
     pipeline { id name }
     relativePosition
   }
-  sprints(first: 20) { nodes { id name } }
+  sprints(first: 20) { nodes { id name } pageInfo { hasNextPage } }
   milestone { id title number }
   issueType {
     ... on GithubIssueType { id name }
     ... on ZenhubIssueType { id name }
   }
   githubParentIssue { number repository { ghId } }
-  parentZenhubEpics(first: 10) { nodes { id title } }
-  blockingIssues(first: 20) { nodes { number repository { ghId } } }
-  blockedIssues(first: 20) { nodes { number repository { ghId } } }
-  connectedPrs(first: 20) { nodes { number repository { ghId } } }
+  parentZenhubEpics(first: 10) { nodes { id title } pageInfo { hasNextPage } }
+  blockingIssues(first: 20) { nodes { number repository { ghId } } pageInfo { hasNextPage } }
+  blockedIssues(first: 20) { nodes { number repository { ghId } } pageInfo { hasNextPage } }
+  connectedPrs(first: 20) { nodes { number repository { ghId } } pageInfo { hasNextPage } }
 }
 """
 
@@ -349,6 +353,24 @@ def issue_key(issue: dict[str, Any]) -> str:
     return f"{repo.get('ownerName')}/{repo.get('name')}#{issue.get('number')}"
 
 
+def find_truncations(node: Any, path: str = "") -> list[str]:
+    """Walk an exported structure and return paths of connections that hit their
+    fixed page cap (pageInfo.hasNextPage == true), i.e. where data was dropped."""
+    truncated: list[str] = []
+    if isinstance(node, dict):
+        info = node.get("pageInfo")
+        if isinstance(info, dict) and info.get("hasNextPage"):
+            truncated.append(path or "<root>")
+        for key, value in node.items():
+            if key == "pageInfo":
+                continue
+            truncated.extend(find_truncations(value, f"{path}.{key}" if path else key))
+    elif isinstance(node, list):
+        for item in node:
+            truncated.extend(find_truncations(item, f"{path}[]"))
+    return truncated
+
+
 def export_workspace(client: ZenHubClient, workspace_id: str) -> dict[str, Any]:
     meta = client.query(WORKSPACE_META, {"workspaceId": workspace_id})["workspace"]
     name = meta["name"]
@@ -394,7 +416,7 @@ def export_workspace(client: ZenHubClient, workspace_id: str) -> dict[str, Any]:
         f"{len(epics)} epics, {len(releases)} releases"
     )
 
-    return {
+    export = {
         "workspace_id": workspace_id,
         "name": name,
         "settings": settings,
@@ -407,6 +429,18 @@ def export_workspace(client: ZenHubClient, workspace_id: str) -> dict[str, Any]:
         "roadmap": roadmap,
         "issues": issues_by_key,
     }
+
+    truncated = sorted(set(find_truncations(export)))
+    if truncated:
+        print(
+            f"  WARNING: {len(truncated)} nested connection(s) hit the page cap; "
+            "data was dropped. Increase 'first:' or paginate these:",
+            file=sys.stderr,
+        )
+        for path in truncated:
+            print(f"    {path}", file=sys.stderr)
+
+    return export
 
 
 def write_output(out_dir: Path, workspaces_meta: list[dict[str, Any]], exports: list[dict[str, Any]]) -> None:
