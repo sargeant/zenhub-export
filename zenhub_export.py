@@ -73,17 +73,24 @@ class ZenHubClient:
 
 
 ORG_WORKSPACES = """
-query OrgWorkspaces($cursor: String) {
-  viewer {
-    zenhubOrganizations(first: 50) {
-      nodes {
-        id
-        name
-        workspaces(first: 25, after: $cursor) {
-          nodes { id name }
-          pageInfo { hasNextPage endCursor }
-        }
+query OrgWorkspaces($orgId: ID!, $cursor: String) {
+  node(id: $orgId) {
+    ... on ZenhubOrganization {
+      workspaces(first: 25, after: $cursor) {
+        nodes { id name }
+        pageInfo { hasNextPage endCursor }
       }
+    }
+  }
+}
+"""
+
+ORGS = """
+query Orgs($cursor: String) {
+  viewer {
+    zenhubOrganizations(first: 50, after: $cursor) {
+      nodes { id name }
+      pageInfo { hasNextPage endCursor }
     }
   }
 }
@@ -261,31 +268,31 @@ query ClosedIssues($workspaceId: ID!, $cursor: String) {
 
 
 def discover_workspaces(client: ZenHubClient) -> list[dict[str, Any]]:
-    workspaces: list[dict[str, Any]] = []
-    seen: set[str] = set()
+    orgs: list[dict[str, Any]] = []
     cursor: str | None = None
     while True:
-        data = client.query(ORG_WORKSPACES, {"cursor": cursor})
-        orgs = data["viewer"]["zenhubOrganizations"]["nodes"]
-        has_next = False
-        for org in orgs:
-            conn = org["workspaces"]
+        conn = client.query(ORGS, {"cursor": cursor})["viewer"]["zenhubOrganizations"]
+        orgs.extend(conn["nodes"])
+        info = conn["pageInfo"]
+        if not info["hasNextPage"]:
+            break
+        cursor = info["endCursor"]
+
+    workspaces: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for org in orgs:
+        ws_cursor: str | None = None
+        while True:
+            conn = client.query(ORG_WORKSPACES, {"orgId": org["id"], "cursor": ws_cursor})["node"]["workspaces"]
             for ws in conn["nodes"]:
                 if ws["id"] in seen:
                     continue
                 seen.add(ws["id"])
-                workspaces.append(
-                    {
-                        "id": ws["id"],
-                        "name": ws["name"],
-                        "organization": org["name"],
-                    }
-                )
-            if conn["pageInfo"]["hasNextPage"]:
-                has_next = True
-                cursor = conn["pageInfo"]["endCursor"]
-        if not has_next:
-            break
+                workspaces.append({"id": ws["id"], "name": ws["name"], "organization": org["name"]})
+            info = conn["pageInfo"]
+            if not info["hasNextPage"]:
+                break
+            ws_cursor = info["endCursor"]
     return workspaces
 
 
