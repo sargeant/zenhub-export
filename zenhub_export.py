@@ -58,7 +58,13 @@ class ZenHubClient:
     def query(self, query: str, variables: dict[str, Any]) -> dict[str, Any]:
         payload = {"query": query, "variables": variables}
         for attempt in range(MAX_RETRIES):
-            resp = self._client.post("", json=payload)
+            try:
+                resp = self._client.post("", json=payload)
+            except httpx.TransportError as exc:
+                wait = 2**attempt
+                print(f"  transport error ({exc!r}); retrying in {wait}s", file=sys.stderr)
+                time.sleep(wait)
+                continue
             if resp.status_code == 429 or resp.status_code >= 500:
                 wait = 2**attempt
                 print(f"  rate/server error {resp.status_code}; retrying in {wait}s", file=sys.stderr)
