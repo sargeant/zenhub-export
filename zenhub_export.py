@@ -443,13 +443,9 @@ def export_workspace(client: ZenHubClient, workspace_id: str) -> dict[str, Any]:
     return export
 
 
-def write_output(out_dir: Path, workspaces_meta: list[dict[str, Any]], exports: list[dict[str, Any]]) -> None:
-    out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "workspaces.json").write_text(json.dumps(workspaces_meta, indent=2))
-    for export in exports:
-        safe = export["workspace_id"]
-        (out_dir / f"workspace-{safe}.json").write_text(json.dumps(export, indent=2))
-    print(f"\nWrote {len(exports)} workspace export(s) to {out_dir}")
+def write_workspace(out_dir: Path, export: dict[str, Any]) -> None:
+    path = out_dir / f"workspace-{export['workspace_id']}.json"
+    path.write_text(json.dumps(export, indent=2))
 
 
 def main() -> int:
@@ -483,11 +479,17 @@ def main() -> int:
         if not targets:
             parser.error("provide workspace IDs, --all, or --list")
 
-        exports = [export_workspace(client, wid) for wid in targets]
-
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         out_dir = Path(args.out) if args.out else Path("exports") / stamp
-        write_output(out_dir, workspaces_meta, exports)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / "workspaces.json").write_text(json.dumps(workspaces_meta, indent=2))
+
+        written = 0
+        for wid in targets:
+            export = export_workspace(client, wid)
+            write_workspace(out_dir, export)
+            written += 1
+        print(f"\nWrote {written} workspace export(s) to {out_dir}")
         return 0
     finally:
         client.close()
